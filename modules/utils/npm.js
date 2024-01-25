@@ -194,28 +194,42 @@ export async function getPackage(packageName, version, log) {
   const pkgConfig = await getPackageConfig(packageName, version, log);
   const tarballURL = pkgConfig.dist ? pkgConfig.dist.tarball : `${npmRegistryURL}/${packageName}/-/${tarballName}-${version}.tgz`;
 
-  log.debug('Fetching package for %s from %s', packageName, tarballURL);
 
-  const { hostname, pathname } = url.parse(tarballURL);
-  const options = {
-    agent: agent,
-    hostname: hostname,
-    path: pathname
+  const got = async (tarballURL) => {
+    log.debug('Fetching package for %s from %s', packageName, tarballURL);
+
+    const { hostname, pathname } = url.parse(tarballURL);
+    const options = {
+      agent: agent,
+      hostname: hostname,
+      path: pathname
+    };
+
+    const res = await get(options);
+
+    if (res.statusCode === 200) {
+      const stream = res.pipe(gunzip());
+      // stream.pause();
+      return stream;
+    }
+
+    if (res.statusCode === 404) {
+      return null;
+    }
+
+    if (res.statusCode === 302) {
+      // 说的就是你啊, 浓眉大眼的淘宝
+      // curl -v https://registry.npmmirror.com/jquery/-/jquery-1.7.2.tgz 
+      // res.headers.locaiton: https://cdn.npmmirror.com/packages/jquery/1.7.2/jquery-1.7.2.tgz
+      const tarballURL = res.headers.location;
+      console.log("🚀 ~ resirection ~ tarballURL:", tarballURL)
+      return await got(tarballURL)
+    }
   };
 
-  const res = await get(options);
+  const res = await got(tarballURL); 
 
-  if (res.statusCode === 200) {
-    const stream = res.pipe(gunzip());
-    // stream.pause();
-    return stream;
-  }
-
-  if (res.statusCode === 404) {
-    return null;
-  }
-
-  const content = (await bufferStream(res)).toString('utf-8');
+  const content = typeof res === 'string'? res: (await bufferStream(res)).toString('utf-8');
 
   log.error(
     'Error fetching tarball for %s@%s (status: %s)',
@@ -223,7 +237,7 @@ export async function getPackage(packageName, version, log) {
     version,
     res.statusCode
   );
-  log.error(content);
+  log.error(typeof content + "///" + typeof res );
 
   return null;
 }
